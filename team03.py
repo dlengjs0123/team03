@@ -1,0 +1,116 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 한글 폰트 설정
+plt.rc('font', family='Malgun Gothic')
+plt.rcParams['axes.unicode_minus'] = False
+
+
+def load_data(uploaded_file):
+    """업로드된 CSV 파일을 판다스 데이터프레임으로 읽어옵니다."""
+    return pd.read_csv(uploaded_file)
+
+
+def display_preview(df):
+    """데이터프레임의 첫 5행을 표 형태로 출력합니다."""
+    st.subheader("데이터 미리보기 (첫 5행)")
+    st.dataframe(df.head())
+
+
+def filter_by_collection_size(df, min_val, max_val):
+    """총장서수를 기준으로 데이터를 필터링합니다."""
+    return df[(df['총장서수'] >= min_val) & (df['총장서수'] <= max_val)]
+
+
+def plot_correlation_scatter(df, remove_outliers=False):
+    """자료구입비 비중과 장서 회전율 간의 상관계수를 계산하고 산점도를 그립니다."""
+    st.subheader("자료구입비 비중과 장서 회전율 상관관계")
+
+    # 이상치 제거 옵션이 켜진 경우, 상위 2% 극단치 제외
+    if remove_outliers:
+        q_x = df['자료구입비비중(%)'].quantile(0.98)
+        q_y = df['장서회전율'].quantile(0.98)
+        plot_df = df[(df['자료구입비비중(%)'] < q_x) & (df['장서회전율'] < q_y)]
+    else:
+        plot_df = df
+
+    # 상관계수 계산 및 출력
+    corr_coef = plot_df['자료구입비비중(%)'].corr(plot_df['장서회전율'])
+    st.metric(label="피어슨 상관계수", value=f"{corr_coef:.3f}",
+              help="1에 가까울수록 강한 양의 상관관계, 0에 가까울수록 관계없음을 의미합니다.")
+
+    # 산점도 및 회귀선 시각화
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.regplot(data=plot_df, x='자료구입비비중(%)', y='장서회전율', ax=ax,
+                scatter_kws={'alpha': 0.6}, line_kws={'color': 'red'})
+
+    title_suffix = " (이상치 제거됨)" if remove_outliers else ""
+    ax.set_title(f"자료구입비 비중 vs 장서 회전율{title_suffix}")
+    st.pyplot(fig)
+
+
+def plot_top10_turnover(df):
+    """장서 회전율 상위 10개 도서관 그래프 (자료구입비 비중 주석 포함)"""
+    st.subheader("장서 회전율 상위 10개 도서관")
+
+    # 장서회전율 기준으로 상위 10개 추출
+    top10_df = df.nlargest(10, '장서회전율').reset_index(drop=True)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.barplot(data=top10_df, x='장서회전율', y='도서관명', ax=ax, color='steelblue')
+
+    # 막대 끝에 자료구입비 비중(%) 텍스트 추가
+    for i, p in enumerate(ax.patches):
+        ratio = top10_df.loc[i, '자료구입비비중(%)']
+        ax.annotate(f"예산비중: {ratio:.1f}%",
+                    (p.get_width(), p.get_y() + p.get_height() / 2.),
+                    ha='left', va='center', xytext=(5, 0), textcoords='offset points',
+                    fontsize=9, color='black')
+
+    ax.set_title("상위 10개 도서관의 장서 회전율 및 자료구입비 비중")
+    # 텍스트가 잘리지 않도록 x축 여백 확장
+    ax.set_xlim(0, ax.get_xlim()[1] * 1.2)
+    st.pyplot(fig)
+
+    st.markdown("**상위 10개 도서관 데이터 상세**")
+    st.dataframe(top10_df[['도서관명', '장서회전율', '자료구입비비중(%)', '총장서수']])
+
+
+def main():
+    st.title("부산광역시 공공도서관 상관관계 분석")
+    st.write("자료구입비 비중과 장서 회전율의 상관관계를 분석하는 대시보드입니다.")
+
+    uploaded_file = st.file_uploader("library_final_data.csv 파일을 업로드하세요.", type=['csv'])
+
+    if uploaded_file is not None:
+        df = load_data(uploaded_file)
+        display_preview(df)
+
+        st.divider()
+        st.subheader("데이터 필터링 및 분석")
+
+        # 필터링 슬라이더
+        min_books = int(df['총장서수'].min())
+        max_books = int(df['총장서수'].max())
+        selected_range = st.slider(
+            "도서관 규모(총장서수) 범위를 선택하세요:",
+            min_value=min_books, max_value=max_books, value=(min_books, max_books)
+        )
+        filtered_df = filter_by_collection_size(df, selected_range[0], selected_range[1])
+        st.write(f"현재 선택된 범위의 도서관 수: **{len(filtered_df)}**개")
+
+        # 이상치 제거 UI 추가
+        remove_outliers = st.checkbox("극단적인 이상치(상위 2%) 제외하고 보기")
+
+        if st.button("분석 실행"):
+            if len(filtered_df) > 0:
+                plot_correlation_scatter(filtered_df, remove_outliers)
+                plot_top10_turnover(filtered_df)
+            else:
+                st.warning("선택한 총장서수 범위에 해당하는 도서관 데이터가 없습니다.")
+
+
+if __name__ == "__main__":
+    main()
