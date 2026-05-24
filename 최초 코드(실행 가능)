@@ -1,0 +1,98 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 한글 폰트 설정 (사용 환경에 따라 수정이 필요할 수 있습니다)
+# 윈도우 폰트 기준이며, Mac 사용자의 경우 'AppleGothic'으로 변경하십시오.
+plt.rc('font', family='Malgun Gothic')
+plt.rcParams['axes.unicode_minus'] = False
+
+def load_data(uploaded_file):
+    """업로드된 CSV 파일을 판다스 데이터프레임으로 읽어옵니다."""
+    return pd.read_csv(uploaded_file)
+
+def display_preview(df):
+    """데이터프레임의 첫 5행을 표 형태로 출력합니다."""
+    st.subheader("데이터 미리보기 (첫 5행)")
+    st.dataframe(df.head())
+
+def filter_by_collection_size(df, min_val, max_val):
+    """총장서수를 기준으로 데이터를 필터링합니다."""
+    return df[(df['총장서수'] >= min_val) & (df['총장서수'] <= max_val)]
+
+def plot_correlation_scatter(df):
+    """자료구입비 비중과 장서 회전율 간의 산점도와 회귀선을 그립니다."""
+    st.subheader("자료구입비 비중과 장서 회전율 상관관계")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # seaborn의 regplot을 사용하여 산점도와 선형 회귀선을 함께 출력합니다.
+    sns.regplot(data=df, x='자료구입비비중(%)', y='장서회전율', ax=ax)
+    
+    ax.set_title("자료구입비 비중 vs 장서 회전율")
+    st.pyplot(fig)
+
+def plot_top10_turnover(df):
+    """장서 회전율 상위 10개 도서관의 막대 그래프와 표를 출력합니다."""
+    st.subheader("장서 회전율 상위 10개 도서관")
+    
+    # 장서회전율 기준으로 상위 10개 추출
+    top10_df = df.nlargest(10, '장서회전율')
+    
+    # 막대 그래프 시각화
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.barplot(data=top10_df, x='장서회전율', y='도서관명', ax=ax)
+    ax.set_title("상위 10개 도서관의 장서 회전율")
+    st.pyplot(fig)
+    
+    # 표 형태 출력
+    st.markdown("**상위 10개 도서관 데이터 상세**")
+    st.dataframe(top10_df[['도서관명', '장서회전율', '자료구입비비중(%)', '총장서수']])
+
+def main():
+    # 페이지 기본 설정
+    st.title("부산광역시 공공도서관 상관관계 분석")
+    st.write("자료구입비 비중과 장서 회전율의 상관관계를 분석하는 대시보드입니다.")
+
+    # 1. CSV 파일 업로드
+    uploaded_file = st.file_uploader("library_final_data.csv 파일을 업로드하세요.", type=['csv'])
+
+    if uploaded_file is not None:
+        # 데이터 로드
+        df = load_data(uploaded_file)
+        
+        # 2. 전처리된 데이터 미리보기
+        display_preview(df)
+        
+        st.divider()
+        st.subheader("데이터 필터링 및 분석")
+        
+        # 슬라이더 설정값을 위한 최소/최대 총장서수 계산
+        min_books = int(df['총장서수'].min())
+        max_books = int(df['총장서수'].max())
+        
+        # 3. 도서관 규모(총장서수) 기준 데이터 필터링 슬라이더
+        selected_range = st.slider(
+            "도서관 규모(총장서수) 범위를 선택하세요:",
+            min_value=min_books,
+            max_value=max_books,
+            value=(min_books, max_books)
+        )
+        
+        # 데이터 필터링 적용
+        filtered_df = filter_by_collection_size(df, selected_range[0], selected_range[1])
+        st.write(f"현재 선택된 범위의 도서관 수: **{len(filtered_df)}**개")
+        
+        # 4. 분석 실행 버튼
+        if st.button("분석 실행"):
+            if len(filtered_df) > 0:
+                # 시각화 1: 산점도 및 회귀선
+                plot_correlation_scatter(filtered_df)
+                
+                # 시각화 2: 상위 10개 도서관 막대 그래프 및 표
+                plot_top10_turnover(filtered_df)
+            else:
+                st.warning("선택한 총장서수 범위에 해당하는 도서관 데이터가 없습니다.")
+
+if __name__ == "__main__":
+    main()
